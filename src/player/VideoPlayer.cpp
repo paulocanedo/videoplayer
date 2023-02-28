@@ -46,24 +46,6 @@ void VideoPlayer::play() {
     }
 }
 
-VideoDecoder* VideoPlayer::createDecoderFirstVideoStream() const {
-    const ushort nstreams = formatContext->nb_streams;
-    for(uint i=0; i < nstreams; i++) {
-        const AVStream* stream = formatContext->streams[i];
-        const AVCodecParameters* codecParams = stream->codecpar;
-
-        if (codecParams->codec_type == AVMEDIA_TYPE_VIDEO) {
-            std::cout << "fps: " << (stream->avg_frame_rate).num << "/" << (stream->avg_frame_rate).den << std::endl;
-            std::cout << "tbr: " << (stream->r_frame_rate).num << "/" << (stream->r_frame_rate).den << std::endl;
-            std::cout << "tbn: " << (stream->time_base).num << "/" << (stream->time_base).den << std::endl;
-
-            VideoDecoder* decoder = new VideoDecoder(formatContext, codecParams);
-            return decoder;
-        }
-    }
-    return nullptr;
-}
-
 void VideoPlayer::decodeVideoStream(const AVCodec* codec, const AVCodecParameters* codecParams) {
     printf("%s (%d x %d)", codec->long_name, codecParams->width, codecParams->height);
 
@@ -179,4 +161,8 @@ void VideoPlayer::takeScreenshot(const unsigned char *bytes, int wrap, int width
     }
 
     fclose(f);
+}
+
+AVFormatContext* VideoPlayer::getFormatContext() const {
+    return formatContext;
 }

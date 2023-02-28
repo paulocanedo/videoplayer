@@ -8,6 +8,7 @@ extern "C" {
 #include <glad/glad.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
+#include <EGL/egl.h>
 
 #include "player/VideoPlayer.hpp"
 #include "player/VideoDecoder.hpp"
@@ -32,12 +33,25 @@ const char *fragmentShaderSource = "#version 330 core\n"
     "out vec4 FragColor;\n"
     "in vec3 ourColor;\n"
     "in vec2 TexCoord;\n"
-    "uniform sampler2D tex;\n"
+    "mat3 yuv2rgb = mat3(1.0, 0.0, 1.13983, 1.0, -0.39465, -0.58060, 1.0, 2.03211, 0.0);\n"
+    "uniform sampler2D textureY;\n"
+    "uniform sampler2D textureU;\n"
+    "uniform sampler2D textureV;\n"
     "void main()\n"
     "{\n"
-    //"   FragColor = vec4(1.0f, 0.5f, 0.2f, 1.0f);\n"
-    "   vec4 color = texture(tex, TexCoord);\n"
-    "   FragColor = color;\n"
+    "   vec3 yuv = vec3(texture(textureY, TexCoord).r, texture(textureU, TexCoord * 0.5).r - 0.5, texture(textureV, TexCoord * 0.5).r - 0.5);\n"
+    "   vec4 color = texture(textureY, TexCoord);\n"
+    //"   vec4 yuv = vec4(texture2D(textureY, TexCoord).r, texture2D(textureU, TexCoord).r - 0.5, texture2D(textureU, TexCoord).g - 0.5, 1.0);\n"
+    "   float y = texture(textureY, TexCoord).r;\n"
+    "   float u = texture(textureU, TexCoord).r - 0.5;\n"
+    "   float v = texture(textureV, TexCoord).r - 0.5;\n"
+    "   float r = 1.164 * y + 1.596 * v;"
+    "   float g = 1.164 * y - 0.392 * u - 0.813 * v;"
+    "   float b = 1.164 * y + 2.017 * u;"
+    //"   FragColor = vec4(color.r, color.r, color.r, 1.0);\n"
+    //"   FragColor = vec4(y + 1.140 * v, y - 0.395*u - 0.581*v, y + 2.032 * u, 1.0);\n"
+    "   FragColor = vec4(r, g, b, 1.0);\n"
+    //"     FragColor = vec4(yuv2rgb * yuv, 1.0);\n"
     "}\n\0";
 
 static void error_callback(int error, const char* description)
@@ -52,9 +66,12 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
     glViewport(0, 0, width, height);
 }
 
-int main() {
-//    const char* filename = "/home/paulocanedo/Vídeos/small_bunny_1080p_60fps.mp4";
-    const char* filename = "/home/paulocanedo/Vídeos/big_buck_bunny_720p_stereo.ogg";
+int main(int argc, char** argv) {
+//    const char* filename = "/home/paulocanedo/Vídeos/big_buck_bunny_720p_stereo.ogg";
+//    const char* filename = "/home/paulocanedo/Vídeos/The World In HDR 4K Demo.mkv";
+//    const char* filename = "/home/paulocanedo/Vídeos/videotestsrc.mkv";
+    const char* filename = "/home/paulocanedo/Vídeos/LG Tech 4K Demo.ts";
+//    const char* filename = "/home/paulocanedo/Vídeos/Big_Buck_Bunny_1080_10s_30MB.mp4";
 //    const char* filename = "/home/paulocanedo/Vídeos/Big_Buck_Bunny_first_23_seconds_1080p.ogv.720p.webm";
 
     glfwSetErrorCallback(error_callback);
@@ -85,7 +102,7 @@ int main() {
         return -1;
     }
 
-    glfwSwapInterval(1);
+    glfwSwapInterval(0);
 
     // build and compile our shader program
     // ------------------------------------
@@ -166,15 +183,19 @@ int main() {
     // note that this is allowed, the call to glVertexAttribPointer registered VBO as the vertex attribute's bound vertex buffer object so afterwards we can safely unbind
     glBindBuffer(GL_ARRAY_BUFFER, 0);
 
-    unsigned int texture;
-    glGenTextures(1, &texture);
-    glBindTexture(GL_TEXTURE_2D, texture);
-     // set the texture wrapping parameters
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
-    // set texture filtering parameters
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    const int numTextures = 3;
+    uint32_t textures[numTextures];
+    glGenTextures(numTextures, &textures[0]);
+
+    for(int i=0; i<numTextures; i++) {
+        glBindTexture(GL_TEXTURE_2D, textures[i]);
+        // set the texture wrapping parameters
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);	// set texture wrapping to GL_REPEAT (default wrapping method)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        // set texture filtering parameters
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    }
 
     VideoPlayer player;
     if(!player.init()) {
@@ -185,11 +206,12 @@ int main() {
         std::cerr << "Não foi possível abrir arquivo" << filename << std::endl;
     }
 
-    VideoDecoder* decoder = player.createDecoderFirstVideoStream();
-    decoder->init();
-    int width = decoder->getWidth(), height = decoder->getHeight();
+    //VideoDecoder* decoder = player.createDecoderFirstVideoStream();
+    VideoDecoder decoder(player.getFormatContext());
+    decoder.init();
+    int width = decoder.getWidth(), height = decoder.getHeight();
     SwsContext* scalerContext = sws_getContext(
-        width, height, decoder->getPixelFormat(),
+        width, height, decoder.getPixelFormat(),
         width, height, AV_PIX_FMT_RGB0, SWS_BILINEAR,
         NULL, NULL, NULL
     );
@@ -198,8 +220,6 @@ int main() {
         std::cerr << "Falha ao criar scaler context.\n";
         return -1;
     }
-
-    uint8_t* buffer = (uint8_t*) (malloc(sizeof(uint8_t) * width * height * 4));
 
     // remember: do NOT unbind the EBO while a VAO is active as the bound element buffer object IS stored in the VAO; keep the EBO bound.
     //glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
@@ -212,25 +232,25 @@ int main() {
     auto start = high_resolution_clock::now();
     double videoStart = glfwGetTime();
     double framePts = 0.0;
+    bool flag = false;
     while (!glfwWindowShouldClose(window))
     {
         glClear(GL_COLOR_BUFFER_BIT);
-
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, texture);
-
         auto diffTs = glfwGetTime() - videoStart;
         if(diffTs > framePts) {
-            framePts = decoder->nextFrame(buffer, scalerContext);
-            if(framePts >= 0) {
-                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, buffer);
+
+            framePts = decoder.nextFrame(textures[0], textures[1], textures[2]);
+            //if(framePts >= 0) {
+                //glTexImage2D(GL_TEXTURE_2D, 0, GL_RED, width, height, 0, GL_RED, GL_UNSIGNED_BYTE, bufferY);
                 //glGenerateMipmap(GL_TEXTURE_2D);
-            }
+            //}
         }
 
         // draw our first triangle
         glUseProgram(shaderProgram);
-        glUniform1i(glGetUniformLocation(shaderProgram, "tex"), 0);
+        glUniform1i(glGetUniformLocation(shaderProgram, "textureY"), 0);
+        glUniform1i(glGetUniformLocation(shaderProgram, "textureU"), 1);
+        glUniform1i(glGetUniformLocation(shaderProgram, "textureV"), 2);
         glBindVertexArray(VAO); // seeing as we only have a single VAO there's no need to bind it every time, but we'll do so to keep things a bit more organized
         glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
 
@@ -239,12 +259,11 @@ int main() {
 
         auto stop = high_resolution_clock::now();
         auto duration = duration_cast<milliseconds>(stop - start);
-        //std::cout << "__while__ " << duration << "; " << std::endl;
+        std::cout << "__while__ " << duration << "; " << std::endl;
         start = high_resolution_clock::now();
     }
 
-    free(buffer);
-    delete decoder;
+    //free(buffer);
 
     glfwTerminate();
 	return 0;

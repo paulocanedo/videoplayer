@@ -28,6 +28,7 @@ public:
   const char* getFormatLongName() const;
   int64_t getDuration() const;
   int64_t getBitRate() const;
+  AVFormatContext* getFormatContext() const;
 
   void play();
   void decodeVideoStream(const AVCodec* codec, const AVCodecParameters* codecParams);

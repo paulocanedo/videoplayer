@@ -5,18 +5,15 @@ videoplayer_sources = [
 ]
 
 videoplayer_deps = [
-  dependency('libavformat'),
-  dependency('libavcodec'),
-  dependency('libavutil'),
-  dependency('libswscale'),
+  dependency('libavformat', method: 'pkg-config'),
+  dependency('libavcodec', method: 'pkg-config'),
+  dependency('libavutil', method: 'pkg-config'),
+  dependency('libswscale', method: 'pkg-config'),
 
   dependency('glfw3'),
-  dependency('opengl'),
-  dependency('glm')
-
+  dependency('gl'),
 ]
 
-add_project_arguments(['-ldl'], language: 'cpp')
 
 executable('videoplayer', videoplayer_sources, glad_sources,
   dependencies: videoplayer_deps,
