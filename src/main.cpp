@@ -8,30 +8,28 @@ extern "C" {
 #include <glad/glad.h>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
-#include <EGL/egl.h>
 
 #include "player/VideoPlayer.hpp"
 #include "player/VideoDecoder.hpp"
 
 #include <iostream>
 #include <chrono>
+#include <vector>
 using namespace std::chrono;
 
 const char *vertexShaderSource = "#version 330 core\n"
     "layout (location = 0) in vec3 aPos;\n"
-    "layout (location = 1) in vec3 aColor;\n"
-    "layout (location = 2) in vec2 aTexCoord;\n"
-    "out vec3 ourColor;\n"
+    "layout (location = 1) in vec2 aTexCoord;\n"
+
     "out vec2 TexCoord;\n"
     "void main()\n"
     "{\n"
-    "   gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);\n"
-	    "ourColor = aColor;\n"
+    "   gl_Position = vec4(aPos, 1.0);\n"
 	    "TexCoord = vec2(aTexCoord.x, aTexCoord.y);\n"
     "}\0";
 const char *fragmentShaderSource = "#version 330 core\n"
     "out vec4 FragColor;\n"
-    "in vec3 ourColor;\n"
+    //"in vec3 ourColor;\n"
     "in vec2 TexCoord;\n"
     "mat3 yuv2rgb = mat3(1.0, 0.0, 1.13983, 1.0, -0.39465, -0.58060, 1.0, 2.03211, 0.0);\n"
     "uniform sampler2D textureY;\n"
@@ -48,10 +46,8 @@ const char *fragmentShaderSource = "#version 330 core\n"
     "   float r = 1.164 * y + 1.596 * v;"
     "   float g = 1.164 * y - 0.392 * u - 0.813 * v;"
     "   float b = 1.164 * y + 2.017 * u;"
-    //"   FragColor = vec4(color.r, color.r, color.r, 1.0);\n"
-    //"   FragColor = vec4(y + 1.140 * v, y - 0.395*u - 0.581*v, y + 2.032 * u, 1.0);\n"
+
     "   FragColor = vec4(r, g, b, 1.0);\n"
-    //"     FragColor = vec4(yuv2rgb * yuv, 1.0);\n"
     "}\n\0";
 
 static void error_callback(int error, const char* description)
@@ -64,6 +60,28 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height)
     // make sure the viewport matches the new window dimensions; note that width and
     // height will be significantly larger than specified on retina displays.
     glViewport(0, 0, width, height);
+}
+
+static void pushVertex(std::vector<float> *vertices, const int index, const int numSegments, const float radius) {
+    float theta = 2.0f * M_PI * float(index) / float(numSegments);
+    float x = radius * cos(theta);
+    float y = radius * sin(theta);
+
+    vertices->push_back(x); //x
+    vertices->push_back(y); //y
+    vertices->push_back(0.0f); //z
+
+    //vertices->push_back(1.0f); vertices->push_back(1.0f); vertices->push_back(1.0f); //color
+    vertices->push_back((x + 1.0f) / 2.0f); vertices->push_back(1.0f - (y + 1.0f) / 2.0f); //texture coords
+}
+
+static void pushVertexMapped(std::vector<float> *vertices, const float x, const float y) {
+    vertices->push_back(x);
+    vertices->push_back(y);
+    vertices->push_back(0.0f);
+
+    vertices->push_back((x + 1.0f) / 2.0f);
+    vertices->push_back(1.0f - (y + 1.0f) / 2.0f);
 }
 
 int main(int argc, char** argv) {
@@ -144,41 +162,31 @@ int main(int argc, char** argv) {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
-    // set up vertex data (and buffer(s)) and configure vertex attributes
-    // ------------------------------------------------------------------
-    float vertices[] = {
-        // positions          // colors           // texture coords
-         0.9f,  0.9f, 0.0f,   1.0f, 0.0f, 0.0f,   1.0f, 0.0f, // top right
-         0.9f, -0.9f, 0.0f,   0.0f, 1.0f, 0.0f,   1.0f, 1.0f, // bottom right
-        -0.9f, -0.9f, 0.0f,   0.0f, 0.0f, 1.0f,   0.0f, 1.0f, // bottom left
-        -0.9f,  0.9f, 0.0f,   1.0f, 1.0f, 0.0f,   0.0f, 0.0f  // top left
-    };
-    unsigned int indices[] = {  // note that we start from 0!
-        0, 1, 3,  // first Triangle
-        1, 2, 3   // second Triangle
-    };
-    unsigned int VBO, VAO, EBO;
+    const int numValuesPerVertice = 5;
+    const int numSegments = 360;
+    std::vector<float> vertices;
+    float radius = 1.0f;
+    pushVertexMapped(&vertices, 0.0f, 0.0f);
+    for(int i=0; i < numSegments; i++) {
+        pushVertex(&vertices, i, numSegments, radius);
+    }
+    pushVertex(&vertices, 0, numSegments, radius);
+
+    unsigned int VBO, VAO;
     glGenVertexArrays(1, &VAO);
     glGenBuffers(1, &VBO);
-    glGenBuffers(1, &EBO);
     // bind the Vertex Array Object first, then bind and set vertex buffer(s), and then configure vertex attributes(s).
     glBindVertexArray(VAO);
 
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
-
-    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(float) * (numSegments + 2) * numValuesPerVertice, vertices.data(), GL_DYNAMIC_DRAW);
 
     // position attribute
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, numValuesPerVertice * sizeof(float), (void*)0);
     glEnableVertexAttribArray(0);
-    // color attribute
-    glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(3 * sizeof(float)));
+
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, numValuesPerVertice * sizeof(float), (void*)(3 * sizeof(float)));
     glEnableVertexAttribArray(1);
-    // texture coord attribute
-    glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 8 * sizeof(float), (void*)(6 * sizeof(float)));
-    glEnableVertexAttribArray(2);
 
     // note that this is allowed, the call to glVertexAttribPointer registered VBO as the vertex attribute's bound vertex buffer object so afterwards we can safely unbind
     glBindBuffer(GL_ARRAY_BUFFER, 0);
@@ -233,6 +241,7 @@ int main(int argc, char** argv) {
     double videoStart = glfwGetTime();
     double framePts = 0.0;
     bool flag = false;
+
     while (!glfwWindowShouldClose(window))
     {
         glClear(GL_COLOR_BUFFER_BIT);
@@ -251,15 +260,16 @@ int main(int argc, char** argv) {
         glUniform1i(glGetUniformLocation(shaderProgram, "textureY"), 0);
         glUniform1i(glGetUniformLocation(shaderProgram, "textureU"), 1);
         glUniform1i(glGetUniformLocation(shaderProgram, "textureV"), 2);
+
         glBindVertexArray(VAO); // seeing as we only have a single VAO there's no need to bind it every time, but we'll do so to keep things a bit more organized
-        glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
+        glDrawArrays(GL_TRIANGLE_FAN, 0, vertices.size() / numValuesPerVertice);
 
         glfwSwapBuffers(window);
         glfwPollEvents();
 
         auto stop = high_resolution_clock::now();
         auto duration = duration_cast<milliseconds>(stop - start);
-        std::cout << "__while__ " << duration << "; " << std::endl;
+        //std::cout << "__while__ " << duration << "; " << std::endl;
         start = high_resolution_clock::now();
     }
 
